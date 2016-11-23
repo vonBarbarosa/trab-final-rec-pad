@@ -39,7 +39,7 @@ ytst2<-as.matrix(y2[xseq2[1:Ntst]])
 
 Ntst1<-nrow(xtst1)
 Ntst2<-nrow(xtst2)
-Ntst<-Ntst1+Ntst2
+
 
 # Training Samples
 xt1<-xc1[xseq1[(Ntst+1):N1],]
@@ -71,11 +71,51 @@ plot(xtst2,col='orange',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
 
 ## Find best h to test samples (avoiding overfitting)
 
+# Create full distance matrix
+distAll <- as.matrix(dist(xtall))
+
+# Extract only test vs training
+distExt <- distAll[1:(2*Ntst),(2*Ntst+1):N]
+
+# Same for labels:
+labelAll <- ytall %*% t(ytall)
+labelExt <- labelAll[1:(2*Ntst),(2*Ntst+1):N]
+
+# Loop Setup
+hseq<-seq(0.01,1,0.01)
+perc_err_TST<-matrix(nrow = length(hseq))
+
+# Loop for getting best h
+for (i in 1:length(hseq))
+{
+  h<-hseq[i]
+  K<-exp(-0.5*(distExt/h)^2)
+  
+  # if yerr[x]<0, sample was misclassified
+  yerr<-colSums(t(labelExt*K))
+  perc_err_TST[i]<-sum(1*(yerr<0))/(2*Ntst)
+}
+
+hBest<-hseq[which.min(perc_err_TST)]
+
+# Percentual test error plot
+myYlim<-c(0,0.5)
+myXlim<-c(0,1)
+plot(hseq,perc_err_TST, type='l', col = 'black',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
 
 ### 2. Take "trespassers" out
 
 ## Iterate over all samples, remove misclassified ones
 
+distFullTrain <- distAll[,(2*Ntst+1):N]
+labelFullTrain <- labelAll[,(2*Ntst+1):N]
+
+h<-hBest
+K<-exp(-0.5*(distFullTrain/h)^2)
+
+# (if yerr[x]<0, sample was misclassified)
+yerr<-colSums(t(labelFullTrain*K))
+badIndexes<-which(yerr<0)
 
 ### 3. Iterate over border, marking selected ones
 
