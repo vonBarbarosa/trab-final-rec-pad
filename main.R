@@ -119,7 +119,53 @@ badIndexes<-which(yerr<0)
 
 ### 3. Iterate over border, marking selected ones
 
+## Define KDE function
 
+myKDEprob = function(p, X, h){
+  n<-length(X[,1])
+  allData<-rbind(p,X)
+  allDist<-as.matrix(dist(allData))
+  pDist<-allDist[(2:(n+1)),1]
+  K<-exp(-0.5*(pDist/h)^2)
+  result<-sum(K)
+  # result<-(1/(2*pi)^(1/2))*(result/n*h)
+  return(result)
+}
+
+## Map area and calculate probabilities in KDE
+
+xrange<-yrange<-seq(-1,1,0.01)
+kdeMapC1<-matrix(nrow = length(xrange), ncol = length(yrange))
+kdeMapC2<-matrix(nrow = length(xrange), ncol = length(yrange))
+
+for (i in 1:length(xrange)){
+  for (j in 1:length(yrange)){
+    p<-c(xrange[i],yrange[j])
+    kdeMapC1[i,j]<-myKDEprob(p,xt1,hBest)
+    kdeMapC2[i,j]<-myKDEprob(p,xt2,hBest)
+  }
+}
+
+# C1 marked by -1, C2 marked by 1
+kdeTotal<-kdeMapC2-kdeMapC1
+classMap<-2*(kdeTotal>0)-1
+
+## Plots
+myXlim<-myYlim<-c(-1,1)
+# contour(xrange, yrange, classMap, xlim = myXlim, ylim = myYlim)
+# par(new=T)
+plot(xt1,col='blue',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst1,col='green',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst2,col='orange',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+
+# getting and plotting the contour points
+contourPoints<-contourLines(xrange, yrange, classMap)[[1]]
+par(new=T)
+plot(contourPoints[[1]],col='black',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
 
 ### 4. Select only marked ones to new KDE
 
