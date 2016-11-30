@@ -1,3 +1,8 @@
+*.pdf
+*.tex
+*.log
+*.gz
+
 # History files
 .Rhistory
 .Rapp.history
