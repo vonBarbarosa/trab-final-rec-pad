@@ -125,7 +125,7 @@ plot(hseq,perc_err_TST, type='l', col = 'black',xlim = myXlim, ylim = myYlim)
 # xtst2<-xtst2[-badTst2]
 # Ntst2<-length(xtst2[,1])
 
-### 3. Iterate over border, marking selected ones
+### 2. Iterate over border, marking selected ones
 
 ## Define KDE function
 
@@ -176,6 +176,9 @@ contourPoints<-cbind(contourPoints[[2]], contourPoints[[3]])
 par(new=T)
 plot(contourPoints,col='black',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
 
+
+### 4. Select only marked ones to new KDE
+
 ## Selecting best samples
 
 chosenTrain1<-matrix(0,nrow=Nt1)
@@ -192,7 +195,7 @@ for (i in 1:Ncontour){
   chosenTrain2[which.min( distBorderC2[i,])]<-1
 }
 
-### 4. Select only marked ones to new KDE
+# Setting new training
 
 newxt1<-xt1[which(chosenTrain1==1),]
 newxt2<-xt2[which(chosenTrain2==1),]

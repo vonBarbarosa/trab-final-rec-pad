@@ -1,0 +1,412 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[brazil]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{color}
+\usepackage[affil-it]{authblk}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+\title{Trabalho final - Disciplina de Reconhecimento de Padrões}
+\author{Leo Barbosa Reis - Turma TCS}
+\affil{Universidade Federal de Minas Gerais}
+\date{Novembro/2016}
+
+\maketitle
+
+\section{Proposta do Trabalho}
+
+A proposta deste trabalho é fazer a análise dos resultados de um algoritmo de seleção de amostras mais relevantes para aplicação do KDE (\emph{Kernel Density Estimation}).
+
+O algoritmo se estrutura da seguinte forma:
+
+\begin{enumerate}
+  \item Aplicação do KDE para o problema de classificação com duas classes, com objetivo de gerar curva de separação entre as classes;
+  \begin{enumerate}
+    \item Para determinação do parâmetro de largura de banda \emph{h}, executa-se separação das amostras entre treinamento e teste, fazendo uso de vários valores de \emph{h} e selecionando aquele que gera menor erro para o conjunto de teste;
+  \end{enumerate}
+  \item Iteração sobre os pontos da curva de separação, selecionando, para cada um deles, uma amostra de treinamento de cada classe. O critério de escolha será a amostra de cada classe mais próxima do ponto da curva;
+  \item Eliminar as amostras que não foram escolhidas como mais próximas por nenhum dos pontos da curva;
+  \item Reaplicar o KDE com os novos pontos.
+\end{enumerate}
+
+\subsection{Limitações do Algoritmo}
+
+O algoritmo proposto possui as seguintes limitações em sua elaboração:
+
+\begin{itemize}
+  \item Problemas de classificação
+  \item 2 classes
+  \item 2 dimensões
+\end{itemize}
+
+\section{Desenvolvimento}
+
+\subsection{Aplicação simples do KDE}
+
+A aplicação do KDE foi algo a que demos bastante ênfase na aula, inclusive sendo tema central de avaliação da disciplina. A fonte de amostras utilizada foi do problema \emph{spirals}.
+
+<<echo=TRUE,fig=FALSE>>=
+
+# Clean variables
+rm(list=ls())
+
+### 1. Apply KDE
+
+## Import database, declare variables
+library('mlbench')
+N<-400
+Ntst<-50 #per class
+p<-mlbench.spirals(N,1,0.08)
+
+# index c1 and c2
+ic1<-which(p[[2]]==1)
+ic2<-which(p[[2]]==2)
+
+# x = attributes from samples
+xall<-as.matrix(p[[1]])
+xc1<-xall[ic1,]
+xc2<-xall[ic2,]
+
+N1<-dim(xc1)[1]
+N2<-dim(xc2)[1]
+
+y1<-matrix(-1,nrow = N1,ncol=1)
+y2<-matrix(1,nrow = N2,ncol=1)
+y<-rbind(y1,y2)
+
+xseq1<-sample(N1)
+xseq2<-sample(N2)
+
+## Separe training and test samples
+
+# Test Samples
+xtst1<-xc1[xseq1[1:Ntst],]
+xtst2<-xc2[xseq2[1:Ntst],]
+
+ytst1<-as.matrix(y1[xseq1[1:Ntst]])
+ytst2<-as.matrix(y2[xseq2[1:Ntst]])
+
+Ntst1<-nrow(xtst1)
+Ntst2<-nrow(xtst2)
+
+
+# Training Samples
+xt1<-xc1[xseq1[(Ntst+1):N1],]
+xt2<-xc2[xseq2[(Ntst+1):N2],]
+
+yt1<-as.matrix(y1[xseq1[(Ntst+1):N1]])
+yt2<-as.matrix(y2[xseq2[(Ntst+1):N2]])
+
+xt<-rbind(xt1,xt2)
+yt<-rbind(yt1,yt2)
+
+Nt1<-nrow(xt1)
+Nt2<-nrow(xt2)
+Nt<-Nt1+Nt2
+
+# The whole set: training and test together
+xtall<-rbind(xtst1,xtst2,xt1,xt2)
+ytall<-rbind(ytst1,ytst2,yt1,yt2)
+
+## Plots
+myXlim<-myYlim<-c(-1,1)
+plot(xt1,col='blue',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst1,col='green',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst2,col='orange',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+title("Samples")
+@
+
+\begin{figure}[ht]
+\centering
+<<echo=FALSE,fig=TRUE>>=
+plot(xt1,col='blue',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst1,col='green',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst2,col='orange',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+title("Samples")
+@
+\caption{Amostras Classe 1 (azuis: treinamento, verdes: teste) e Classe 2 (vermelhas: treinamento, laranjas: teste)}
+\label{fig1}
+\end{figure}
+
+Encontrando o melhor \emph{h}, com o critério de que possua o melhor desempenho para as variáveis de teste, evitando, assim, o \emph{overfitting}.
+
+<<echo=TRUE>>=
+## Find best h to test samples (avoiding overfitting)
+
+# Create full distance matrix
+distAll <- as.matrix(dist(xtall))
+
+# Extract only test vs training
+distExt <- distAll[1:(2*Ntst),(2*Ntst+1):N]
+
+# Same for labels:
+labelAll <- ytall %*% t(ytall)
+labelExt <- labelAll[1:(2*Ntst),(2*Ntst+1):N]
+
+# Loop Setup
+hseq<-seq(0.01,1,0.01)
+perc_err_TST<-matrix(nrow = length(hseq))
+
+# Loop for getting best h
+for (i in 1:length(hseq))
+{
+  h<-hseq[i]
+  K<-exp(-0.5*(distExt/h)^2)
+  
+  # if yerr[x]<0, sample was misclassified
+  yerr<-colSums(t(labelExt*K))
+  perc_err_TST[i]<-sum(1*(yerr<0))/(2*Ntst)
+}
+
+hBest<-hseq[which.min(perc_err_TST)]
+
+# Percentual test error plot
+myYlim<-c(0,0.5)
+myXlim<-c(0,1)
+plot(hseq,perc_err_TST, type='l', col = 'black',xlim = myXlim, ylim = myYlim)
+@
+
+
+\begin{figure}[ht]
+\centering
+<<echo=FALSE,fig=TRUE>>=
+# Percentual test error plot
+myYlim<-c(0,0.5)
+myXlim<-c(0,1)
+plot(hseq,perc_err_TST, type='l', col = 'black',xlim = myXlim, ylim = myYlim)
+title("Gráfico do percentual de erro em teste x h")
+@
+\label{PercErro}
+\caption{}
+\end{figure}
+
+O melhor valor de \emph{h} encontrado foi de \Sexpr{hBest}, como pode ser visto no gráfico \ref{PercErro} na página \pageref{PercErro}.
+
+
+
+\subsection{Gerando os pontos da curva de separação}
+
+Para gerar a curva de separação, foi necessário varrer a superfície do problema, aplicando o KDE para cada ponto.
+
+<<echo=T>>=
+### 2. Iterate over border, marking selected ones
+
+## Define KDE probability function
+myKDEprob = function(p, X, h){
+  n<-length(X[,1])
+  allData<-rbind(p,X)
+  allDist<-as.matrix(dist(allData))
+  pDist<-allDist[(2:(n+1)),1]
+  K<-exp(-0.5*(pDist/h)^2)
+  result<-sum(K)
+  result<-(1/(2*pi)^(1/2))*(result/n*h)
+  return(result)
+}
+@
+
+
+<<echo=T>>=
+## Map area and calculate probabilities in KDE
+
+xrange<-yrange<-seq(-1,1,0.05)
+kdeMapC1<-matrix(nrow = length(xrange), ncol = length(yrange))
+kdeMapC2<-matrix(nrow = length(xrange), ncol = length(yrange))
+
+for (i in 1:length(xrange)){
+  for (j in 1:length(yrange)){
+    p<-c(xrange[i],yrange[j])
+    kdeMapC1[i,j]<-myKDEprob(p,xt1,hBest)
+    kdeMapC2[i,j]<-myKDEprob(p,xt2,hBest)
+  }
+}
+
+# C1 marked by -1, C2 marked by 1
+kdeTotal<-kdeMapC2-kdeMapC1
+classMap<-2*(kdeTotal>0)-1
+
+## Plots
+myXlim<-myYlim<-c(-1,1)
+plot(xt1,col='blue',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst1,col='green',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst2,col='orange',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+
+## Getting and plotting the contour points
+contourPoints<-contourLines(xrange, yrange, classMap)[[1]]
+contourPoints<-cbind(contourPoints[[2]], contourPoints[[3]])
+par(new=T)
+plot(contourPoints,col='black',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+
+@
+
+\begin{figure}[ht]
+\centering
+<<echo=FALSE,fig=TRUE>>=
+
+## Plots
+myXlim<-myYlim<-c(-1,1)
+plot(xt1,col='blue',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst1,col='green',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(xtst2,col='orange',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(contourPoints,col='black',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '',axes = FALSE)
+@
+\caption{Pontos pretos compõem a curva de separação}
+\end{figure}
+
+\subsection{Selecionando as amostras mais próximas da curva de separação}
+
+Neste ponto do algoritmo, calculamos as distâncias dos pontos da curva para cada uma das amostras de treinamento, divididas por classe, e selecionamos aquelas mais próximas.
+
+<<echo=T>>=
+### 3. Selecting best samples
+
+chosenTrain1<-matrix(0,nrow=Nt1)
+chosenTrain2<-matrix(0,nrow=Nt2)
+Nc<-length(contourPoints[,1])
+
+# Distances between contour (row) and training samples (col)
+distBorderC1<-as.matrix(dist(rbind(contourPoints,xt1)))[1:Nc,(Nc+1):(Nc+Nt1)]
+distBorderC2<-as.matrix(dist(rbind(contourPoints,xt2)))[1:Nc,(Nc+1):(Nc+Nt2)]
+
+
+for (i in 1:Nc){
+  chosenTrain1[which.min(distBorderC1[i,])]<-1
+  chosenTrain2[which.min(distBorderC2[i,])]<-1
+}
+
+# Setting new training
+
+newxt1<-xt1[which(chosenTrain1==1),]
+newxt2<-xt2[which(chosenTrain2==1),]
+
+## Plot
+myXlim<-myYlim<-c(-1,1)
+plot(newxt1,col='blue',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(newxt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+contour(xrange, yrange, classMap, xlim = myXlim, ylim = myYlim)
+@
+
+\begin{figure}[ht]
+\centering
+<<echo=FALSE,fig=T>>=
+## Plot
+myXlim<-myYlim<-c(-1,1)
+plot(newxt1,col='blue',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(newxt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+contour(xrange, yrange, classMap, xlim = myXlim, ylim = myYlim)
+@
+\caption{Amostras selecionadas, juntamente com a curva de separação}
+\end{figure}
+
+
+\subsection{Execução do KDE com amostras selecionadas}
+
+Executamos novamente o KDE, desta vez com as amostras de treinamento selecionadas na etapa anterior.
+
+<<echo=T>>=
+### 4. Run new KDE with only selected samples as training
+
+newkdeMapC1<-matrix(nrow = length(xrange), ncol = length(yrange))
+newkdeMapC2<-matrix(nrow = length(xrange), ncol = length(yrange))
+
+for (i in 1:length(xrange)){
+  for (j in 1:length(yrange)){
+    p<-c(xrange[i],yrange[j])
+    newkdeMapC1[i,j]<-myKDEprob(p,newxt1,hBest)
+    newkdeMapC2[i,j]<-myKDEprob(p,newxt2,hBest)
+  }
+}
+
+# C1 marked by -1, C2 marked by 1
+newkdeTotal<-newkdeMapC2-newkdeMapC1
+newclassMap<-2*(newkdeTotal>0)-1
+
+par(new=T)
+contour(xrange, yrange, newclassMap, col='green', xlim = myXlim, ylim = myYlim)
+
+# Finding error with test samples
+new_perc_err_TST<-0
+
+for (i in 1:Ntst1){
+  if (myKDEprob(xtst1[i,],newxt1,hBest)<myKDEprob(xtst1[i,],newxt2,hBest)){
+    new_perc_err_TST<-new_perc_err_TST+1
+  }
+}
+
+for (i in 1:Ntst2){
+  if (myKDEprob(xtst2[i,],newxt2,hBest)<myKDEprob(xtst2[i,],newxt1,hBest)){
+    new_perc_err_TST<-new_perc_err_TST+1
+  }
+}
+new_perc_err_TST<-new_perc_err_TST/(Ntst*2)
+@
+
+Verificando o novo erro para as mesmas amostras de teste, comparando com o menor erro antes da seleção das amostras:
+
+<<echo=T>>=
+#Former error versus new error
+c(min(perc_err_TST),new_perc_err_TST)
+@
+\label{novoErro}
+
+\begin{figure}[ht]
+\centering
+<<echo=F,fig=T>>=
+myXlim<-myYlim<-c(-1,1)
+plot(newxt1,col='blue',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(newxt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+contour(xrange, yrange, classMap, xlim = myXlim, ylim = myYlim)
+par(new=T)
+contour(xrange, yrange, newclassMap, col='green', xlim = myXlim, ylim = myYlim)
+@
+\caption{Nova curva de separação (verde) e antiga curva (preto)}
+\label{fig:NovaSep}
+\end{figure}
+
+\section{Análise dos resultados}
+
+Analisando a figura \ref{fig:NovaSep}, podemos notar que a nova curva de separação entre as classes é bastante similar, o que demonstra similaridade na classificação das amostras.
+
+A nova taxa de erro, que pode ser vista na página \pageref{novoErro}, mostrou-se maior que a anterior (o que era de se esperar). No entanto, esse aumento foi pequeno, pois, enquanto o erro com todas as amostras oscilou entre $0$ e $4\%$, com as amostras selecionadas não passou do $9\%$, sendo, em geral, o dobro do valor obtido anteriormente.
+
+Comparando a quantidade de amostras utilizadas para o KDE, temos:
+
+<<echo=TRUE>>=
+c(length(xt1[,1])+length(xt2[,1]),length(newxt1[,1])+length(newxt2[,1]))
+@
+
+Isso representa uma diminuição de \Sexpr{length(xt1[,1])+length(xt2[,1])}$/$\Sexpr{length(newxt1[,1])+length(newxt2[,1])}$=$\Sexpr{(length(xt1[,1])+length(xt2[,1]))/(length(newxt1[,1])+length(newxt2[,1]))} vezes menos amostras, gerando menor custo computacional.
+
+\section{Conclusões}
+
+Consciente das limitações do algoritmo, e embora não tenham sido feitos vastos testes sistemáticos para atestar sua eficiência e eficácia, é interessante observar os resultados preliminares obtidos.
+
+Primeiramente, era-se esperado que a taxa de erros aumentasse, visto que haveria menos amostras de treinamento. Além disso, o problema escolhido gera, quase sempre, classes que não possuem separação bem definida, e que só se encontraria erro igual a zero no caso de \emph{overfitting} (o que, em geral, não é desejado).
+
+No mais, é interessante analisar que a diminuição do número de amostras ocasionou apenas um pequeno aumento no erro. Este é um bom indício de que, em uma situação de limitado poder computacional, ou com grande número de amostras, é possível reduzir os custos sem que isso acarrete grande queda na eficácia da classificação.
+
+\end{document}
