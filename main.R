@@ -101,21 +101,29 @@ hBest<-hseq[which.min(perc_err_TST)]
 # Percentual test error plot
 myYlim<-c(0,0.5)
 myXlim<-c(0,1)
-plot(hseq,perc_err_TST, type='l', col = 'black',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+plot(hseq,perc_err_TST, type='l', col = 'black',xlim = myXlim, ylim = myYlim)
 
-### 2. Take "trespassers" out
-
-## Iterate over all samples, remove misclassified ones
-
-distFullTrain <- distAll[,(2*Ntst+1):N]
-labelFullTrain <- labelAll[,(2*Ntst+1):N]
-
-h<-hBest
-K<-exp(-0.5*(distFullTrain/h)^2)
-
-# (if yerr[x]<0, sample was misclassified)
-yerr<-colSums(t(labelFullTrain*K))
-badIndexes<-which(yerr<0)
+# ### 2. Take "trespassers" out
+# 
+# ## Iterate over all samples, remove misclassified ones
+# 
+# distFullTrain <- distAll[,(2*Ntst+1):N]
+# labelFullTrain <- labelAll[,(2*Ntst+1):N]
+# 
+# h<-hBest
+# K<-exp(-0.5*(distFullTrain/h)^2)
+# 
+# # (if yerr[x]<0, test sample was misclassified)
+# yerr<-colSums(t(labelFullTrain*K))
+# badTestIndexes<-which(yerr<0)
+# badTst1<-badTestIndexes[which(badTestIndexes<=Ntst1)]
+# badTst2<-badTestIndexes[which(badTestIndexes>Ntst1)]-Ntst1
+# # getting them out
+# xtst1<-xtst1[-badTst1]
+# Ntst1<-length(xtst1[,1])
+# 
+# xtst2<-xtst2[-badTst2]
+# Ntst2<-length(xtst2[,1])
 
 ### 3. Iterate over border, marking selected ones
 
@@ -128,13 +136,13 @@ myKDEprob = function(p, X, h){
   pDist<-allDist[(2:(n+1)),1]
   K<-exp(-0.5*(pDist/h)^2)
   result<-sum(K)
-  # result<-(1/(2*pi)^(1/2))*(result/n*h)
+  result<-(1/(2*pi)^(1/2))*(result/n*h)
   return(result)
 }
 
 ## Map area and calculate probabilities in KDE
 
-xrange<-yrange<-seq(-1,1,0.01)
+xrange<-yrange<-seq(-1,1,0.05)
 kdeMapC1<-matrix(nrow = length(xrange), ncol = length(yrange))
 kdeMapC2<-matrix(nrow = length(xrange), ncol = length(yrange))
 
@@ -162,16 +170,77 @@ plot(xt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
 par(new=T)
 plot(xtst2,col='orange',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
 
-# getting and plotting the contour points
+## Getting and plotting the contour points
 contourPoints<-contourLines(xrange, yrange, classMap)[[1]]
+contourPoints<-cbind(contourPoints[[2]], contourPoints[[3]])
 par(new=T)
-plot(contourPoints[[1]],col='black',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+plot(contourPoints,col='black',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+
+## Selecting best samples
+
+chosenTrain1<-matrix(0,nrow=Nt1)
+chosenTrain2<-matrix(0,nrow=Nt2)
+Ncontour<-length(contourPoints[,1])
+
+# Distances between contour (row) and training samples (col)
+distBorderC1<-as.matrix(dist(rbind(contourPoints,xt1)))[1:Ncontour,(Ncontour+1):(Ncontour+Nt1)]
+distBorderC2<-as.matrix(dist(rbind(contourPoints,xt2)))[1:Ncontour,(Ncontour+1):(Ncontour+Nt2)]
+
+
+for (i in 1:Ncontour){
+  chosenTrain1[which.min( distBorderC1[i,])]<-1
+  chosenTrain2[which.min( distBorderC2[i,])]<-1
+}
 
 ### 4. Select only marked ones to new KDE
 
-## Iterate over samples and copy marked ones (???)
+newxt1<-xt1[which(chosenTrain1==1),]
+newxt2<-xt2[which(chosenTrain2==1),]
 
+
+## Plot
+myXlim<-myYlim<-c(-1,1)
+plot(newxt1,col='blue',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+plot(newxt2,col='red',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+par(new=T)
+# plot(contourPoints,col='black',xlim = myXlim, ylim = myYlim, xlab = '', ylab = '')
+contour(xrange, yrange, classMap, xlim = myXlim, ylim = myYlim)
 
 ### 5. Run new KDE with only selected samples as training
 
+newkdeMapC1<-matrix(nrow = length(xrange), ncol = length(yrange))
+newkdeMapC2<-matrix(nrow = length(xrange), ncol = length(yrange))
 
+for (i in 1:length(xrange)){
+  for (j in 1:length(yrange)){
+    p<-c(xrange[i],yrange[j])
+    newkdeMapC1[i,j]<-myKDEprob(p,newxt1,hBest)
+    newkdeMapC2[i,j]<-myKDEprob(p,newxt2,hBest)
+  }
+}
+
+# C1 marked by -1, C2 marked by 1
+newkdeTotal<-newkdeMapC2-newkdeMapC1
+newclassMap<-2*(newkdeTotal>0)-1
+
+par(new=T)
+contour(xrange, yrange, newclassMap, col='green', xlim = myXlim, ylim = myYlim)
+
+# Finding error with test samples
+new_perc_err_TST<-0
+
+for (i in 1:Ntst1){
+  if (myKDEprob(xtst1[i,],newxt1,hBest)<myKDEprob(xtst1[i,],newxt2,hBest)){
+    new_perc_err_TST<-new_perc_err_TST+1
+  }
+}
+
+for (i in 1:Ntst2){
+  if (myKDEprob(xtst2[i,],newxt2,hBest)<myKDEprob(xtst2[i,],newxt1,hBest)){
+    new_perc_err_TST<-new_perc_err_TST+1
+  }
+}
+new_perc_err_TST<-new_perc_err_TST/(Ntst*2)
+
+c(min(perc_err_TST),new_perc_err_TST)
